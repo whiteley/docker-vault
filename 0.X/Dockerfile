@@ -1,24 +1,18 @@
-FROM alpine:3.10
+FROM registry.access.redhat.com/ubi8/ubi:latest
 
-# This is the release of Vault to pull in.
+LABEL maintainer="HashiCorp"
 ARG VAULT_VERSION=1.4.2
 
-# Create a vault user and group first so the IDs get set the same way,
-# even as the rest of this may change over time.
-RUN addgroup vault && \
-    adduser -S -G vault vault
+ADD https://github.com/Yelp/dumb-init/releases/download/v1.0.2/dumb-init_1.0.2_amd64 /usr/bin/dumb-init
+RUN chmod 755 /usr/bin/dumb-init
 
+RUN groupadd --gid 1000 vault && \
+    adduser --uid 100 --system -g vault vault && \
+    usermod -a -G root vault
+ 
 # Set up certificates, our base tools, and Vault.
 RUN set -eux; \
-    apk add --no-cache ca-certificates gnupg openssl libcap su-exec dumb-init tzdata && \
-    apkArch="$(apk --print-arch)"; \
-    case "$apkArch" in \
-        armhf) ARCH='arm' ;; \
-        aarch64) ARCH='arm64' ;; \
-        x86_64) ARCH='amd64' ;; \
-        x86) ARCH='386' ;; \
-        *) echo >&2 "error: unsupported architecture: $apkArch"; exit 1 ;; \
-    esac && \
+    yum install -y ca-certificates gnupg openssl libcap tzdata wget unzip && \
     VAULT_GPGKEY=91A6E7F85D05C65630BEF18951852D87348FFC4C; \
     found=''; \
     for server in \
@@ -32,17 +26,16 @@ RUN set -eux; \
     test -z "$found" && echo >&2 "error: failed to fetch GPG key $VAULT_GPGKEY" && exit 1; \
     mkdir -p /tmp/build && \
     cd /tmp/build && \
-    wget https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_${ARCH}.zip && \
+    wget https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip && \
     wget https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_SHA256SUMS && \
     wget https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_SHA256SUMS.sig && \
     gpg --batch --verify vault_${VAULT_VERSION}_SHA256SUMS.sig vault_${VAULT_VERSION}_SHA256SUMS && \
-    grep vault_${VAULT_VERSION}_linux_${ARCH}.zip vault_${VAULT_VERSION}_SHA256SUMS | sha256sum -c && \
-    unzip -d /bin vault_${VAULT_VERSION}_linux_${ARCH}.zip && \
+    grep vault_${VAULT_VERSION}_linux_amd64.zip vault_${VAULT_VERSION}_SHA256SUMS | sha256sum -c && \
+    unzip -d /bin vault_${VAULT_VERSION}_linux_amd64.zip && \
     cd /tmp && \
     rm -rf /tmp/build && \
     gpgconf --kill dirmngr && \
     gpgconf --kill gpg-agent && \
-    apk del gnupg openssl && \
     rm -rf /root/.gnupg
 
 # /vault/logs is made available to use as a location to store audit logs, if
@@ -50,10 +43,13 @@ RUN set -eux; \
 # storage backend, if desired; the server will be started with /vault/config as
 # the configuration directory so you can add additional config files in that
 # location.
+ENV HOME /home/vault
 RUN mkdir -p /vault/logs && \
     mkdir -p /vault/file && \
     mkdir -p /vault/config && \
-    chown -R vault:vault /vault
+    mkdir -p $HOME && \
+    chgrp -R 0 $HOME && chmod -R g+rwX $HOME && \
+    chgrp -R 0 /vault && chmod -R g+rwX /vault
 
 # Expose the logs directory as a volume since there's potentially long-running
 # state in there
@@ -74,6 +70,8 @@ EXPOSE 8200
 # capability so that Vault can mlock memory.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ENTRYPOINT ["docker-entrypoint.sh"]
+
+USER 100
 
 # By default you'll get a single-node development server that stores everything
 # in RAM and bootstraps itself. Don't use this configuration for production.

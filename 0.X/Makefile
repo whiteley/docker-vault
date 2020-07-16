@@ -2,10 +2,11 @@ REGISTRY_NAME?=docker.io/hashicorp
 VERSION=1.5.0-rc
 IMAGE_TAG_ENT=$(REGISTRY_NAME)/vault-enterprise:$(VERSION)_ent
 IMAGE_TAG_OSS=$(REGISTRY_NAME)/vault:$(VERSION)
+IMAGE_TAG_PREM=$(REGISTRY_NAME)/vault-enterprise:$(VERSION)_prem
 
-.PHONY: build ent-image oss-image
+.PHONY: build ent-image oss-image prem-image
 
-build: ent-image oss-image
+build: ent-image oss-image prem-image
 
 ent-image: 
 	docker build --build-arg VAULT_VERSION=$(VERSION)+ent --no-cache -t $(IMAGE_TAG_ENT) .
@@ -14,3 +15,6 @@ ent-image:
 oss-image:
 	docker build --build-arg VAULT_VERSION=$(VERSION) --no-cache -t $(IMAGE_TAG_OSS) .
 	docker tag $(IMAGE_TAG_OSS) $(REGISTRY_NAME)/vault:latest
+
+prem-image: 
+	docker build --build-arg VAULT_VERSION=$(VERSION)+prem --no-cache -t $(IMAGE_TAG_PREM) -f Dockerfile.premium .
